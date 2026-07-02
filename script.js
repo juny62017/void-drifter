@@ -24,8 +24,16 @@ const player = {
     y: height - 100,
     vx: 0,
     vy: 0,
-    moving: false
+    moving: false,
+    fireTimer: 0,
+    fireRate: 150
 };
+
+const bulletPool = [];
+
+for (let i = 0; i < 100; i++) {
+    bulletPool.push({ active: false, x: 0, y: 0 });
+}
 
 function initStars() {
     stars.length = 0;
@@ -110,6 +118,31 @@ function updatePlayer(dt) {
     if (player.x > width - 15) { player.x = width - 15; player.vx = 0; }
     if (player.y < 15) { player.y = 15; player.vy = 0; }
     if (player.y > height - 15) { player.y = height - 15; player.vy = 0; }
+
+    player.fireTimer -= dt;
+
+    if (keys['Space'] && player.fireTimer <= 0) {
+        for (let i = 0; i < bulletPool.length; i++) {
+            if (!bulletPool[i].active) {
+                bulletPool[i].active = true;
+                bulletPool[i].x = player.x;
+                bulletPool[i].y = player.y - 15;
+                player.fireTimer = player.fireRate;
+                break;
+            }
+        }
+    }
+}
+
+function updateBullets(dt) {
+    for (let i = 0; i < bulletPool.length; i++) {
+        if (bulletPool[i].active) {
+            bulletPool[i].y -= 0.8 * dt;
+            if (bulletPool[i].y < -20) {
+                bulletPool[i].active = false;
+            }
+        }
+    }
 }
 
 function update(dt) {
@@ -123,10 +156,15 @@ function update(dt) {
             player.y = height - 100;
             player.vx = 0;
             player.vy = 0;
+            player.fireTimer = 0;
+            for (let i = 0; i < bulletPool.length; i++) {
+                bulletPool[i].active = false;
+            }
             keys['Enter'] = false;
         }
     } else if (currentState === STATE.PLAYING) {
         updatePlayer(dt);
+        updateBullets(dt);
         
         if (keys['Escape']) {
             currentState = STATE.PAUSED;
@@ -190,6 +228,15 @@ function drawPlayer() {
     ctx.restore();
 }
 
+function drawBullets() {
+    ctx.fillStyle = '#3FBDCC';
+    for (let i = 0; i < bulletPool.length; i++) {
+        if (bulletPool[i].active) {
+            ctx.fillRect(bulletPool[i].x - 2, bulletPool[i].y - 15, 4, 15);
+        }
+    }
+}
+
 function draw() {
     ctx.fillStyle = '#0B0C1E';
     ctx.fillRect(0, 0, width, height);
@@ -199,8 +246,10 @@ function draw() {
     if (currentState === STATE.MENU) {
         drawMenu();
     } else if (currentState === STATE.PLAYING) {
+        drawBullets();
         drawPlayer();
     } else if (currentState === STATE.PAUSED) {
+        drawBullets();
         drawPlayer();
         
         ctx.fillStyle = 'rgba(11, 12, 30, 0.7)';
