@@ -20,6 +20,7 @@ let menuTime = 0;
 const stars = [];
 
 let score = 0;
+let lives = 3;
 const enemies = [];
 let spawnTimer = 0;
 
@@ -30,13 +31,16 @@ const player = {
     vy: 0,
     moving: false,
     fireTimer: 0,
-    fireRate: 150
+    fireRate: 150,
+    invulnerableTimer: 0
 };
 
 const bulletPool = [];
+const enemyBulletPool = [];
 
 for (let i = 0; i < 100; i++) {
     bulletPool.push({ active: false, x: 0, y: 0 });
+    enemyBulletPool.push({ active: false, x: 0, y: 0, vx: 0, vy: 0 });
 }
 
 function initStars() {
@@ -99,6 +103,10 @@ function updateStars(dt) {
 }
 
 function updatePlayer(dt) {
+    if (player.invulnerableTimer > 0) {
+        player.invulnerableTimer -= dt;
+    }
+
     player.moving = false;
     let ax = 0;
     let ay = 0;
@@ -147,18 +155,38 @@ function updateBullets(dt) {
             }
         }
     }
+
+    for (let i = 0; i < enemyBulletPool.length; i++) {
+        if (enemyBulletPool[i].active) {
+            enemyBulletPool[i].x += enemyBulletPool[i].vx * dt;
+            enemyBulletPool[i].y += enemyBulletPool[i].vy * dt;
+            if (enemyBulletPool[i].y > height + 20 || enemyBulletPool[i].x < -20 || enemyBulletPool[i].x > width + 20) {
+                enemyBulletPool[i].active = false;
+            }
+        }
+    }
 }
 
 function updateSpawns(dt) {
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
+        const rand = Math.random();
+        let type = 'drone';
+        if (rand > 0.8) type = 'turret';
+        else if (rand > 0.5) type = 'weaver';
+
+        const startX = Math.random() * (width - 60) + 30;
+
         enemies.push({
-            type: 'drone',
-            x: Math.random() * (width - 60) + 30,
+            type: type,
+            x: startX,
+            startX: startX,
             y: -30,
             vx: 0,
-            vy: 0.15,
-            hp: 1
+            vy: type === 'drone' ? 0.15 : (type === 'weaver' ? 0.1 : 0.05),
+            hp: type === 'turret' ? 3 : 1,
+            timer: 0,
+            fireTimer: 1000 + Math.random() * 1000
         });
         spawnTimer = 1000;
     }
@@ -167,8 +195,34 @@ function updateSpawns(dt) {
 function updateEnemies(dt) {
     for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
-        e.x += e.vx * dt;
-        e.y += e.vy * dt;
+        e.timer += dt;
+        
+        if (e.type === 'weaver') {
+            e.x = e.startX + Math.sin(e.timer * 0.003) * 80;
+            e.y += e.vy * dt;
+        } else if (e.type === 'turret') {
+            e.y += e.vy * dt;
+            e.fireTimer -= dt;
+            if (e.fireTimer <= 0 && e.y > 50 && e.y < height / 2) {
+                for (let j = 0; j < enemyBulletPool.length; j++) {
+                    if (!enemyBulletPool[j].active) {
+                        const eb = enemyBulletPool[j];
+                        eb.active = true;
+                        eb.x = e.x;
+                        eb.y = e.y;
+                        const dx = player.x - e.x;
+                        const dy = player.y - e.y;
+                        const mag = Math.sqrt(dx * dx + dy * dy);
+                        eb.vx = (dx / mag) * 0.3;
+                        eb.vy = (dy / mag) * 0.3;
+                        break;
+                    }
+                }
+                e.fireTimer = 2000;
+            }
+        } else {
+            e.y += e.vy * dt;
+        }
         
         if (e.y > height + 30) {
             enemies.splice(i, 1);
@@ -187,11 +241,48 @@ function checkCollisions() {
                     e.hp--;
                     if (e.hp <= 0) {
                         enemies.splice(i, 1);
-                        score += 100;
+                        score += e.type === 'turret' ? 300 : (e.type === 'weaver' ? 200 : 100);
                         break;
                     }
                 }
             }
+        }
+    }
+}
+
+function checkPlayerHits() {
+    if (player.invulnerableTimer > 0) return;
+
+    let hit = false;
+
+    for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        const dx = player.x - e.x;
+        const dy = player.y - e.y;
+        if (Math.sqrt(dx * dx + dy * dy) < 25) {
+            hit = true;
+            break;
+        }
+    }
+
+    for (let i = 0; i < enemyBulletPool.length; i++) {
+        const b = enemyBulletPool[i];
+        if (b.active) {
+            const dx = player.x - b.x;
+            const dy = player.y - b.y;
+            if (Math.sqrt(dx * dx + dy * dy) < 15) {
+                hit = true;
+                b.active = false;
+                break;
+            }
+        }
+    }
+
+    if (hit) {
+        lives--;
+        player.invulnerableTimer = 1500;
+        if (lives < 0) {
+            currentState = STATE.GAME_OVER;
         }
     }
 }
@@ -208,11 +299,16 @@ function update(dt) {
             player.vx = 0;
             player.vy = 0;
             player.fireTimer = 0;
+            player.invulnerableTimer = 0;
             score = 0;
+            lives = 3;
             enemies.length = 0;
             spawnTimer = 1000;
             for (let i = 0; i < bulletPool.length; i++) {
                 bulletPool[i].active = false;
+            }
+            for (let i = 0; i < enemyBulletPool.length; i++) {
+                enemyBulletPool[i].active = false;
             }
             keys['Enter'] = false;
         }
@@ -222,6 +318,7 @@ function update(dt) {
         updateSpawns(dt);
         updateEnemies(dt);
         checkCollisions();
+        checkPlayerHits();
         
         if (keys['Escape']) {
             currentState = STATE.PAUSED;
@@ -257,6 +354,10 @@ function drawMenu() {
 }
 
 function drawPlayer() {
+    if (player.invulnerableTimer > 0 && Math.floor(player.invulnerableTimer / 100) % 2 === 0) {
+        return;
+    }
+
     ctx.save();
     ctx.translate(player.x, player.y);
 
@@ -292,21 +393,47 @@ function drawBullets() {
             ctx.fillRect(bulletPool[i].x - 2, bulletPool[i].y - 15, 4, 15);
         }
     }
+
+    ctx.fillStyle = '#C94F38';
+    for (let i = 0; i < enemyBulletPool.length; i++) {
+        if (enemyBulletPool[i].active) {
+            ctx.beginPath();
+            ctx.arc(enemyBulletPool[i].x, enemyBulletPool[i].y, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
 }
 
 function drawEnemies() {
     ctx.fillStyle = '#C94F38';
     for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
+        ctx.save();
+        ctx.translate(e.x, e.y);
+        
         if (e.type === 'drone') {
             ctx.beginPath();
-            ctx.moveTo(e.x, e.y + 15);
-            ctx.lineTo(e.x + 15, e.y - 15);
-            ctx.lineTo(e.x, e.y - 5);
-            ctx.lineTo(e.x - 15, e.y - 15);
+            ctx.moveTo(0, 15);
+            ctx.lineTo(15, -15);
+            ctx.lineTo(0, -5);
+            ctx.lineTo(-15, -15);
             ctx.closePath();
             ctx.fill();
+        } else if (e.type === 'weaver') {
+            ctx.beginPath();
+            ctx.moveTo(0, 15);
+            ctx.lineTo(15, 0);
+            ctx.lineTo(0, -15);
+            ctx.lineTo(-15, 0);
+            ctx.closePath();
+            ctx.fill();
+        } else if (e.type === 'turret') {
+            ctx.fillRect(-12, -12, 24, 24);
+            ctx.fillStyle = '#E8E4D4';
+            ctx.fillRect(-4, 0, 8, 18);
         }
+        
+        ctx.restore();
     }
 }
 
@@ -316,6 +443,21 @@ function drawUI() {
     ctx.textBaseline = 'top';
     ctx.font = "bold 20px 'Courier New', Courier, monospace";
     ctx.fillText(`SCORE: ${score}`, 20, 20);
+
+    for (let i = 0; i < lives; i++) {
+        ctx.save();
+        ctx.translate(width - 40 - i * 30, 30);
+        ctx.scale(0.8, 0.8);
+        ctx.fillStyle = '#3FBDCC';
+        ctx.beginPath();
+        ctx.moveTo(0, -12);
+        ctx.lineTo(10, 10);
+        ctx.lineTo(0, 5);
+        ctx.lineTo(-10, 10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+    }
 }
 
 function draw() {
@@ -358,7 +500,9 @@ function draw() {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.font = "32px 'Courier New', Courier, monospace";
-        ctx.fillText("GAME OVER", width / 2, height / 2);
+        ctx.fillText("GAME OVER", width / 2, height / 2 - 20);
+        ctx.font = "20px 'Courier New', Courier, monospace";
+        ctx.fillText("PRESS ENTER TO RESTART", width / 2, height / 2 + 30);
     }
 }
 
