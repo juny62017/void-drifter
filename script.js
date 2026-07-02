@@ -19,6 +19,10 @@ let lastTime = 0;
 let menuTime = 0;
 const stars = [];
 
+let score = 0;
+const enemies = [];
+let spawnTimer = 0;
+
 const player = {
     x: width / 2,
     y: height - 100,
@@ -145,6 +149,53 @@ function updateBullets(dt) {
     }
 }
 
+function updateSpawns(dt) {
+    spawnTimer -= dt;
+    if (spawnTimer <= 0) {
+        enemies.push({
+            type: 'drone',
+            x: Math.random() * (width - 60) + 30,
+            y: -30,
+            vx: 0,
+            vy: 0.15,
+            hp: 1
+        });
+        spawnTimer = 1000;
+    }
+}
+
+function updateEnemies(dt) {
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        e.x += e.vx * dt;
+        e.y += e.vy * dt;
+        
+        if (e.y > height + 30) {
+            enemies.splice(i, 1);
+        }
+    }
+}
+
+function checkCollisions() {
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const e = enemies[i];
+        for (let j = 0; j < bulletPool.length; j++) {
+            const b = bulletPool[j];
+            if (b.active) {
+                if (b.x + 2 > e.x - 15 && b.x - 2 < e.x + 15 && b.y > e.y - 15 && b.y - 15 < e.y + 15) {
+                    b.active = false;
+                    e.hp--;
+                    if (e.hp <= 0) {
+                        enemies.splice(i, 1);
+                        score += 100;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
 function update(dt) {
     updateStars(dt);
     
@@ -157,6 +208,9 @@ function update(dt) {
             player.vx = 0;
             player.vy = 0;
             player.fireTimer = 0;
+            score = 0;
+            enemies.length = 0;
+            spawnTimer = 1000;
             for (let i = 0; i < bulletPool.length; i++) {
                 bulletPool[i].active = false;
             }
@@ -165,6 +219,9 @@ function update(dt) {
     } else if (currentState === STATE.PLAYING) {
         updatePlayer(dt);
         updateBullets(dt);
+        updateSpawns(dt);
+        updateEnemies(dt);
+        checkCollisions();
         
         if (keys['Escape']) {
             currentState = STATE.PAUSED;
@@ -237,6 +294,30 @@ function drawBullets() {
     }
 }
 
+function drawEnemies() {
+    ctx.fillStyle = '#C94F38';
+    for (let i = 0; i < enemies.length; i++) {
+        const e = enemies[i];
+        if (e.type === 'drone') {
+            ctx.beginPath();
+            ctx.moveTo(e.x, e.y + 15);
+            ctx.lineTo(e.x + 15, e.y - 15);
+            ctx.lineTo(e.x, e.y - 5);
+            ctx.lineTo(e.x - 15, e.y - 15);
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+}
+
+function drawUI() {
+    ctx.fillStyle = '#E8E4D4';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = "bold 20px 'Courier New', Courier, monospace";
+    ctx.fillText(`SCORE: ${score}`, 20, 20);
+}
+
 function draw() {
     ctx.fillStyle = '#0B0C1E';
     ctx.fillRect(0, 0, width, height);
@@ -247,10 +328,14 @@ function draw() {
         drawMenu();
     } else if (currentState === STATE.PLAYING) {
         drawBullets();
+        drawEnemies();
         drawPlayer();
+        drawUI();
     } else if (currentState === STATE.PAUSED) {
         drawBullets();
+        drawEnemies();
         drawPlayer();
+        drawUI();
         
         ctx.fillStyle = 'rgba(11, 12, 30, 0.7)';
         ctx.fillRect(0, 0, width, height);
@@ -261,6 +346,14 @@ function draw() {
         ctx.font = "32px 'Courier New', Courier, monospace";
         ctx.fillText("PAUSED", width / 2, height / 2);
     } else if (currentState === STATE.GAME_OVER) {
+        drawBullets();
+        drawEnemies();
+        drawPlayer();
+        drawUI();
+        
+        ctx.fillStyle = 'rgba(11, 12, 30, 0.7)';
+        ctx.fillRect(0, 0, width, height);
+        
         ctx.fillStyle = '#E8E4D4';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
