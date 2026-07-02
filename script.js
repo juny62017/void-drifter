@@ -19,6 +19,14 @@ let lastTime = 0;
 let menuTime = 0;
 const stars = [];
 
+const player = {
+    x: width / 2,
+    y: height - 100,
+    vx: 0,
+    vy: 0,
+    moving: false
+};
+
 function initStars() {
     stars.length = 0;
     for (let i = 0; i < 150; i++) {
@@ -55,6 +63,9 @@ window.addEventListener('resize', () => {
     canvas.width = width;
     canvas.height = height;
     initStars();
+    
+    if (player.x > width) player.x = width - 20;
+    if (player.y > height) player.y = height - 20;
 });
 
 window.addEventListener('keydown', (e) => {
@@ -75,6 +86,32 @@ function updateStars(dt) {
     }
 }
 
+function updatePlayer(dt) {
+    player.moving = false;
+    let ax = 0;
+    let ay = 0;
+    const acc = 0.002 * dt;
+
+    if (keys['ArrowUp'] || keys['KeyW']) { ay -= acc; player.moving = true; }
+    if (keys['ArrowDown'] || keys['KeyS']) { ay += acc; player.moving = true; }
+    if (keys['ArrowLeft'] || keys['KeyA']) { ax -= acc; player.moving = true; }
+    if (keys['ArrowRight'] || keys['KeyD']) { ax += acc; player.moving = true; }
+
+    player.vx += ax;
+    player.vy += ay;
+    
+    player.vx *= 0.92;
+    player.vy *= 0.92;
+
+    player.x += player.vx * dt;
+    player.y += player.vy * dt;
+
+    if (player.x < 15) { player.x = 15; player.vx = 0; }
+    if (player.x > width - 15) { player.x = width - 15; player.vx = 0; }
+    if (player.y < 15) { player.y = 15; player.vy = 0; }
+    if (player.y > height - 15) { player.y = height - 15; player.vy = 0; }
+}
+
 function update(dt) {
     updateStars(dt);
     
@@ -82,9 +119,15 @@ function update(dt) {
         menuTime += dt;
         if (keys['Enter']) {
             currentState = STATE.PLAYING;
+            player.x = width / 2;
+            player.y = height - 100;
+            player.vx = 0;
+            player.vy = 0;
             keys['Enter'] = false;
         }
     } else if (currentState === STATE.PLAYING) {
+        updatePlayer(dt);
+        
         if (keys['Escape']) {
             currentState = STATE.PAUSED;
             keys['Escape'] = false;
@@ -118,26 +161,61 @@ function drawMenu() {
     }
 }
 
+function drawPlayer() {
+    ctx.save();
+    ctx.translate(player.x, player.y);
+
+    if (player.moving) {
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = '#3FBDCC';
+        ctx.fillStyle = '#E8E4D4';
+        ctx.beginPath();
+        ctx.moveTo(-6, 12);
+        ctx.lineTo(6, 12);
+        ctx.lineTo(0, 25 + Math.random() * 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.fillStyle = '#3FBDCC';
+    ctx.beginPath();
+    ctx.moveTo(0, -18);
+    ctx.lineTo(15, 15);
+    ctx.lineTo(0, 8);
+    ctx.lineTo(-15, 15);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.restore();
+}
+
 function draw() {
     ctx.fillStyle = '#0B0C1E';
     ctx.fillRect(0, 0, width, height);
 
     drawStars();
 
-    ctx.fillStyle = '#E8E4D4';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
     if (currentState === STATE.MENU) {
         drawMenu();
     } else if (currentState === STATE.PLAYING) {
-        ctx.font = "20px 'Courier New', Courier, monospace";
-        ctx.fillText("PLAYING...", width / 2, height / 2);
+        drawPlayer();
     } else if (currentState === STATE.PAUSED) {
-        ctx.font = "20px 'Courier New', Courier, monospace";
+        drawPlayer();
+        
+        ctx.fillStyle = 'rgba(11, 12, 30, 0.7)';
+        ctx.fillRect(0, 0, width, height);
+        
+        ctx.fillStyle = '#E8E4D4';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = "32px 'Courier New', Courier, monospace";
         ctx.fillText("PAUSED", width / 2, height / 2);
     } else if (currentState === STATE.GAME_OVER) {
-        ctx.font = "20px 'Courier New', Courier, monospace";
+        ctx.fillStyle = '#E8E4D4';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = "32px 'Courier New', Courier, monospace";
         ctx.fillText("GAME OVER", width / 2, height / 2);
     }
 }
