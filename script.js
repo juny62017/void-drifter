@@ -27,6 +27,7 @@ let consecutiveKills = 0;
 let lives = 3;
 const enemies = [];
 const powerUps = [];
+const particles = [];
 let spawnTimer = 0;
 
 let currentWave = 0;
@@ -59,7 +60,8 @@ const player = {
     invulnerableTimer: 0,
     hasShield: false,
     rapidFireTimer: 0,
-    wideShotTimer: 0
+    wideShotTimer: 0,
+    hitFlashTimer: 0
 };
 
 const bulletPool = [];
@@ -129,6 +131,18 @@ function updateStars(dt) {
     }
 }
 
+function updateParticles(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.life -= 0.002 * dt;
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+}
+
 function updatePlayer(dt) {
     if (player.invulnerableTimer > 0) {
         player.invulnerableTimer -= dt;
@@ -138,6 +152,9 @@ function updatePlayer(dt) {
     }
     if (player.wideShotTimer > 0) {
         player.wideShotTimer -= dt;
+    }
+    if (player.hitFlashTimer > 0) {
+        player.hitFlashTimer -= dt;
     }
 
     player.moving = false;
@@ -254,7 +271,8 @@ function updateSpawns(dt) {
             vy: type === 'drone' ? 0.15 : (type === 'weaver' ? 0.1 : 0.05),
             hp: type === 'turret' ? 3 : 1,
             timer: 0,
-            fireTimer: 1000 + Math.random() * 1000
+            fireTimer: 1000 + Math.random() * 1000,
+            dissolve: 0
         });
         
         enemiesSpawned++;
@@ -265,6 +283,14 @@ function updateSpawns(dt) {
 function updateEnemies(dt) {
     for (let i = enemies.length - 1; i >= 0; i--) {
         const e = enemies[i];
+        
+        if (e.dissolve < 1) {
+            e.dissolve += 0.002 * dt;
+            if (e.dissolve > 1) {
+                e.dissolve = 1;
+            }
+        }
+        
         e.timer += dt;
         
         if (e.type === 'weaver') {
@@ -310,6 +336,16 @@ function checkCollisions() {
                     b.active = false;
                     e.hp--;
                     if (e.hp <= 0) {
+                        for (let p = 0; p < 20; p++) {
+                            particles.push({
+                                x: e.x,
+                                y: e.y,
+                                vx: (Math.random() - 0.5) * 0.6,
+                                vy: (Math.random() - 0.5) * 0.6,
+                                life: 1
+                            });
+                        }
+
                         if (Math.random() < 0.1) {
                             const types = ['shield', 'rapid', 'wide'];
                             powerUps.push({
@@ -378,6 +414,7 @@ function checkPlayerHits() {
         } else {
             lives--;
             player.invulnerableTimer = 1500;
+            player.hitFlashTimer = 100;
             player.rapidFireTimer = 0;
             player.wideShotTimer = 0;
             consecutiveKills = 0;
@@ -407,6 +444,7 @@ function update(dt) {
             player.hasShield = false;
             player.rapidFireTimer = 0;
             player.wideShotTimer = 0;
+            player.hitFlashTimer = 0;
             score = 0;
             consecutiveKills = 0;
             multiplier = 1;
@@ -415,6 +453,7 @@ function update(dt) {
             enemiesSpawned = 0;
             enemies.length = 0;
             powerUps.length = 0;
+            particles.length = 0;
             spawnTimer = 1000;
             for (let i = 0; i < bulletPool.length; i++) {
                 bulletPool[i].active = false;
@@ -428,6 +467,7 @@ function update(dt) {
         updatePlayer(dt);
         updateBullets(dt);
         updatePowerUps(dt);
+        updateParticles(dt);
         updateSpawns(dt);
         updateEnemies(dt);
         checkCollisions();
@@ -451,6 +491,7 @@ function update(dt) {
         updatePlayer(dt);
         updateBullets(dt);
         updatePowerUps(dt);
+        updateParticles(dt);
         
         waveTimer -= dt;
         if (waveTimer <= 0) {
@@ -477,6 +518,15 @@ function drawStars() {
     for (let i = 0; i < stars.length; i++) {
         ctx.fillRect(stars[i].x, stars[i].y, stars[i].size, stars[i].size);
     }
+}
+
+function drawParticles() {
+    for (let i = 0; i < particles.length; i++) {
+        ctx.fillStyle = '#C94F38';
+        ctx.globalAlpha = particles[i].life;
+        ctx.fillRect(particles[i].x - 2, particles[i].y - 2, 4, 4);
+    }
+    ctx.globalAlpha = 1.0;
 }
 
 function drawMenu() {
@@ -514,7 +564,7 @@ function drawPlayer() {
         ctx.shadowBlur = 0;
     }
 
-    ctx.fillStyle = '#3FBDCC';
+    ctx.fillStyle = player.hitFlashTimer > 0 ? '#E8E4D4' : '#3FBDCC';
     ctx.beginPath();
     ctx.moveTo(0, -18);
     ctx.lineTo(15, 15);
@@ -580,6 +630,7 @@ function drawEnemies() {
     for (let i = 0; i < enemies.length; i++) {
         const e = enemies[i];
         ctx.save();
+        ctx.globalAlpha = e.dissolve;
         ctx.translate(e.x, e.y);
         
         if (e.type === 'drone') {
@@ -677,11 +728,13 @@ function draw() {
         drawPowerUps();
         drawBullets();
         drawEnemies();
+        drawParticles();
         drawPlayer();
         drawUI();
     } else if (currentState === STATE.WAVE_TRANSITION) {
         drawPowerUps();
         drawBullets();
+        drawParticles();
         drawPlayer();
         drawUI();
         
@@ -699,6 +752,7 @@ function draw() {
         drawPowerUps();
         drawBullets();
         drawEnemies();
+        drawParticles();
         drawPlayer();
         drawUI();
         
@@ -714,6 +768,7 @@ function draw() {
         drawPowerUps();
         drawBullets();
         drawEnemies();
+        drawParticles();
         drawPlayer();
         drawUI();
         
