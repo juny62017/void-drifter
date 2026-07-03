@@ -26,6 +26,7 @@ let multiplier = 1;
 let consecutiveKills = 0;
 let lives = 3;
 const enemies = [];
+const powerUps = [];
 let spawnTimer = 0;
 
 let currentWave = 0;
@@ -55,14 +56,17 @@ const player = {
     moving: false,
     fireTimer: 0,
     fireRate: 150,
-    invulnerableTimer: 0
+    invulnerableTimer: 0,
+    hasShield: false,
+    rapidFireTimer: 0,
+    wideShotTimer: 0
 };
 
 const bulletPool = [];
 const enemyBulletPool = [];
 
-for (let i = 0; i < 100; i++) {
-    bulletPool.push({ active: false, x: 0, y: 0 });
+for (let i = 0; i < 200; i++) {
+    bulletPool.push({ active: false, x: 0, y: 0, vx: 0 });
     enemyBulletPool.push({ active: false, x: 0, y: 0, vx: 0, vy: 0 });
 }
 
@@ -129,6 +133,12 @@ function updatePlayer(dt) {
     if (player.invulnerableTimer > 0) {
         player.invulnerableTimer -= dt;
     }
+    if (player.rapidFireTimer > 0) {
+        player.rapidFireTimer -= dt;
+    }
+    if (player.wideShotTimer > 0) {
+        player.wideShotTimer -= dt;
+    }
 
     player.moving = false;
     let ax = 0;
@@ -155,17 +165,31 @@ function updatePlayer(dt) {
     if (player.y > height - 15) { player.y = height - 15; player.vy = 0; }
 
     player.fireTimer -= dt;
+    
+    const currentFireRate = player.rapidFireTimer > 0 ? player.fireRate / 2 : player.fireRate;
 
     if (keys['Space'] && player.fireTimer <= 0) {
-        for (let i = 0; i < bulletPool.length; i++) {
-            if (!bulletPool[i].active) {
-                bulletPool[i].active = true;
-                bulletPool[i].x = player.x;
-                bulletPool[i].y = player.y - 15;
-                player.fireTimer = player.fireRate;
-                break;
+        const spawnB = (vx, offset) => {
+            for (let i = 0; i < bulletPool.length; i++) {
+                if (!bulletPool[i].active) {
+                    bulletPool[i].active = true;
+                    bulletPool[i].x = player.x + offset;
+                    bulletPool[i].y = player.y - 15;
+                    bulletPool[i].vx = vx;
+                    break;
+                }
             }
+        };
+
+        if (player.wideShotTimer > 0) {
+            spawnB(0, 0);
+            spawnB(-0.2, -10);
+            spawnB(0.2, 10);
+        } else {
+            spawnB(0, 0);
         }
+        
+        player.fireTimer = currentFireRate;
     }
 }
 
@@ -173,7 +197,8 @@ function updateBullets(dt) {
     for (let i = 0; i < bulletPool.length; i++) {
         if (bulletPool[i].active) {
             bulletPool[i].y -= 0.8 * dt;
-            if (bulletPool[i].y < -20) {
+            bulletPool[i].x += bulletPool[i].vx * dt;
+            if (bulletPool[i].y < -20 || bulletPool[i].x < -20 || bulletPool[i].x > width + 20) {
                 bulletPool[i].active = false;
             }
         }
@@ -186,6 +211,27 @@ function updateBullets(dt) {
             if (enemyBulletPool[i].y > height + 20 || enemyBulletPool[i].x < -20 || enemyBulletPool[i].x > width + 20) {
                 enemyBulletPool[i].active = false;
             }
+        }
+    }
+}
+
+function updatePowerUps(dt) {
+    for (let i = powerUps.length - 1; i >= 0; i--) {
+        const p = powerUps[i];
+        p.y += p.vy * dt;
+        
+        if (p.y > height + 20) {
+            powerUps.splice(i, 1);
+            continue;
+        }
+        
+        const dx = player.x - p.x;
+        const dy = player.y - p.y;
+        if (Math.sqrt(dx * dx + dy * dy) < 25) {
+            if (p.type === 'shield') player.hasShield = true;
+            else if (p.type === 'rapid') player.rapidFireTimer = 10000;
+            else if (p.type === 'wide') player.wideShotTimer = 10000;
+            powerUps.splice(i, 1);
         }
     }
 }
@@ -264,6 +310,16 @@ function checkCollisions() {
                     b.active = false;
                     e.hp--;
                     if (e.hp <= 0) {
+                        if (Math.random() < 0.1) {
+                            const types = ['shield', 'rapid', 'wide'];
+                            powerUps.push({
+                                type: types[Math.floor(Math.random() * types.length)],
+                                x: e.x,
+                                y: e.y,
+                                vy: 0.1
+                            });
+                        }
+
                         enemies.splice(i, 1);
                         
                         consecutiveKills++;
@@ -316,14 +372,21 @@ function checkPlayerHits() {
     }
 
     if (hit) {
-        lives--;
-        player.invulnerableTimer = 1500;
-        consecutiveKills = 0;
-        multiplier = 1;
-        
-        if (lives < 0) {
-            saveHighScore();
-            currentState = STATE.GAME_OVER;
+        if (player.hasShield) {
+            player.hasShield = false;
+            player.invulnerableTimer = 1500;
+        } else {
+            lives--;
+            player.invulnerableTimer = 1500;
+            player.rapidFireTimer = 0;
+            player.wideShotTimer = 0;
+            consecutiveKills = 0;
+            multiplier = 1;
+            
+            if (lives < 0) {
+                saveHighScore();
+                currentState = STATE.GAME_OVER;
+            }
         }
     }
 }
@@ -341,6 +404,9 @@ function update(dt) {
             player.vy = 0;
             player.fireTimer = 0;
             player.invulnerableTimer = 0;
+            player.hasShield = false;
+            player.rapidFireTimer = 0;
+            player.wideShotTimer = 0;
             score = 0;
             consecutiveKills = 0;
             multiplier = 1;
@@ -348,6 +414,7 @@ function update(dt) {
             currentWave = 0;
             enemiesSpawned = 0;
             enemies.length = 0;
+            powerUps.length = 0;
             spawnTimer = 1000;
             for (let i = 0; i < bulletPool.length; i++) {
                 bulletPool[i].active = false;
@@ -360,6 +427,7 @@ function update(dt) {
     } else if (currentState === STATE.PLAYING) {
         updatePlayer(dt);
         updateBullets(dt);
+        updatePowerUps(dt);
         updateSpawns(dt);
         updateEnemies(dt);
         checkCollisions();
@@ -382,6 +450,7 @@ function update(dt) {
     } else if (currentState === STATE.WAVE_TRANSITION) {
         updatePlayer(dt);
         updateBullets(dt);
+        updatePowerUps(dt);
         
         waveTimer -= dt;
         if (waveTimer <= 0) {
@@ -454,6 +523,14 @@ function drawPlayer() {
     ctx.closePath();
     ctx.fill();
 
+    if (player.hasShield) {
+        ctx.strokeStyle = '#3FBDCC';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, 26, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+
     ctx.restore();
 }
 
@@ -461,7 +538,11 @@ function drawBullets() {
     ctx.fillStyle = '#3FBDCC';
     for (let i = 0; i < bulletPool.length; i++) {
         if (bulletPool[i].active) {
-            ctx.fillRect(bulletPool[i].x - 2, bulletPool[i].y - 15, 4, 15);
+            ctx.save();
+            ctx.translate(bulletPool[i].x, bulletPool[i].y);
+            ctx.rotate(Math.atan2(bulletPool[i].vx, -0.8));
+            ctx.fillRect(-2, -10, 4, 15);
+            ctx.restore();
         }
     }
 
@@ -472,6 +553,25 @@ function drawBullets() {
             ctx.arc(enemyBulletPool[i].x, enemyBulletPool[i].y, 4, 0, Math.PI * 2);
             ctx.fill();
         }
+    }
+}
+
+function drawPowerUps() {
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = "bold 16px 'Courier New', Courier, monospace";
+    
+    for (let i = 0; i < powerUps.length; i++) {
+        const p = powerUps[i];
+        ctx.fillStyle = '#3FBDCC';
+        ctx.fillRect(p.x - 12, p.y - 12, 24, 24);
+        
+        ctx.fillStyle = '#0B0C1E';
+        let letter = 'S';
+        if (p.type === 'rapid') letter = 'R';
+        else if (p.type === 'wide') letter = 'W';
+        
+        ctx.fillText(letter, p.x, p.y + 2);
     }
 }
 
@@ -544,6 +644,25 @@ function drawUI() {
         ctx.fill();
         ctx.restore();
     }
+
+    let uiY = height - 40;
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#3FBDCC';
+    ctx.font = "bold 18px 'Courier New', Courier, monospace";
+
+    if (player.hasShield) {
+        ctx.fillText("SHIELD: ACTIVE", 20, uiY);
+        uiY -= 25;
+    }
+    if (player.wideShotTimer > 0) {
+        const secs = Math.ceil(player.wideShotTimer / 1000);
+        ctx.fillText(`WIDE SHOT: ${secs}s`, 20, uiY);
+        uiY -= 25;
+    }
+    if (player.rapidFireTimer > 0) {
+        const secs = Math.ceil(player.rapidFireTimer / 1000);
+        ctx.fillText(`RAPID FIRE: ${secs}s`, 20, uiY);
+    }
 }
 
 function draw() {
@@ -555,11 +674,13 @@ function draw() {
     if (currentState === STATE.MENU) {
         drawMenu();
     } else if (currentState === STATE.PLAYING) {
+        drawPowerUps();
         drawBullets();
         drawEnemies();
         drawPlayer();
         drawUI();
     } else if (currentState === STATE.WAVE_TRANSITION) {
+        drawPowerUps();
         drawBullets();
         drawPlayer();
         drawUI();
@@ -575,6 +696,7 @@ function draw() {
             ctx.fillText(`PREPARE FOR WAVE ${currentWave + 2}`, width / 2, height / 2 + 30);
         }
     } else if (currentState === STATE.PAUSED) {
+        drawPowerUps();
         drawBullets();
         drawEnemies();
         drawPlayer();
@@ -589,6 +711,7 @@ function draw() {
         ctx.font = "32px 'Courier New', Courier, monospace";
         ctx.fillText("PAUSED", width / 2, height / 2);
     } else if (currentState === STATE.GAME_OVER) {
+        drawPowerUps();
         drawBullets();
         drawEnemies();
         drawPlayer();
