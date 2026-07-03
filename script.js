@@ -10,7 +10,8 @@ const STATE = {
     MENU: 0,
     PLAYING: 1,
     PAUSED: 2,
-    GAME_OVER: 3
+    GAME_OVER: 3,
+    WAVE_TRANSITION: 4
 };
 
 let currentState = STATE.MENU;
@@ -20,9 +21,31 @@ let menuTime = 0;
 const stars = [];
 
 let score = 0;
+let highScore = localStorage.getItem('voidDrifterHighScore') || 0;
+let multiplier = 1;
+let consecutiveKills = 0;
 let lives = 3;
 const enemies = [];
 let spawnTimer = 0;
+
+let currentWave = 0;
+let enemiesSpawned = 0;
+let waveTimer = 0;
+
+const WAVES = [
+    { count: 10, rate: 1200, types: ['drone'] },
+    { count: 15, rate: 1000, types: ['drone'] },
+    { count: 15, rate: 1000, types: ['drone', 'weaver'] },
+    { count: 20, rate: 900, types: ['drone', 'weaver'] },
+    { count: 15, rate: 1100, types: ['drone', 'turret'] },
+    { count: 25, rate: 800, types: ['drone', 'weaver', 'turret'] },
+    { count: 30, rate: 700, types: ['drone', 'weaver'] },
+    { count: 25, rate: 800, types: ['weaver', 'turret'] },
+    { count: 35, rate: 650, types: ['drone', 'weaver', 'turret'] },
+    { count: 40, rate: 600, types: ['drone', 'weaver'] },
+    { count: 30, rate: 700, types: ['turret', 'weaver'] },
+    { count: 50, rate: 500, types: ['drone', 'weaver', 'turret'] }
+];
 
 const player = {
     x: width / 2,
@@ -168,13 +191,12 @@ function updateBullets(dt) {
 }
 
 function updateSpawns(dt) {
+    const wave = WAVES[currentWave];
+    if (enemiesSpawned >= wave.count) return;
+
     spawnTimer -= dt;
     if (spawnTimer <= 0) {
-        const rand = Math.random();
-        let type = 'drone';
-        if (rand > 0.8) type = 'turret';
-        else if (rand > 0.5) type = 'weaver';
-
+        const type = wave.types[Math.floor(Math.random() * wave.types.length)];
         const startX = Math.random() * (width - 60) + 30;
 
         enemies.push({
@@ -188,7 +210,9 @@ function updateSpawns(dt) {
             timer: 0,
             fireTimer: 1000 + Math.random() * 1000
         });
-        spawnTimer = 1000;
+        
+        enemiesSpawned++;
+        spawnTimer = wave.rate;
     }
 }
 
@@ -241,12 +265,25 @@ function checkCollisions() {
                     e.hp--;
                     if (e.hp <= 0) {
                         enemies.splice(i, 1);
-                        score += e.type === 'turret' ? 300 : (e.type === 'weaver' ? 200 : 100);
+                        
+                        consecutiveKills++;
+                        multiplier = 1 + Math.floor(consecutiveKills / 5);
+                        if (multiplier > 5) multiplier = 5;
+                        
+                        const basePoints = e.type === 'turret' ? 300 : (e.type === 'weaver' ? 200 : 100);
+                        score += basePoints * multiplier;
                         break;
                     }
                 }
             }
         }
+    }
+}
+
+function saveHighScore() {
+    if (score > highScore) {
+        highScore = score;
+        localStorage.setItem('voidDrifterHighScore', highScore);
     }
 }
 
@@ -281,7 +318,11 @@ function checkPlayerHits() {
     if (hit) {
         lives--;
         player.invulnerableTimer = 1500;
+        consecutiveKills = 0;
+        multiplier = 1;
+        
         if (lives < 0) {
+            saveHighScore();
             currentState = STATE.GAME_OVER;
         }
     }
@@ -301,7 +342,11 @@ function update(dt) {
             player.fireTimer = 0;
             player.invulnerableTimer = 0;
             score = 0;
+            consecutiveKills = 0;
+            multiplier = 1;
             lives = 3;
+            currentWave = 0;
+            enemiesSpawned = 0;
             enemies.length = 0;
             spawnTimer = 1000;
             for (let i = 0; i < bulletPool.length; i++) {
@@ -319,15 +364,41 @@ function update(dt) {
         updateEnemies(dt);
         checkCollisions();
         checkPlayerHits();
+
+        if (enemiesSpawned >= WAVES[currentWave].count && enemies.length === 0) {
+            if (currentWave < WAVES.length - 1) {
+                currentState = STATE.WAVE_TRANSITION;
+                waveTimer = 3000;
+            } else {
+                saveHighScore();
+                currentState = STATE.GAME_OVER;
+            }
+        }
         
         if (keys['Escape']) {
             currentState = STATE.PAUSED;
             keys['Escape'] = false;
         }
+    } else if (currentState === STATE.WAVE_TRANSITION) {
+        updatePlayer(dt);
+        updateBullets(dt);
+        
+        waveTimer -= dt;
+        if (waveTimer <= 0) {
+            currentWave++;
+            enemiesSpawned = 0;
+            spawnTimer = 1000;
+            currentState = STATE.PLAYING;
+        }
     } else if (currentState === STATE.PAUSED) {
         if (keys['Escape']) {
             currentState = STATE.PLAYING;
             keys['Escape'] = false;
+        }
+    } else if (currentState === STATE.GAME_OVER) {
+        if (keys['Enter']) {
+            currentState = STATE.MENU;
+            keys['Enter'] = false;
         }
     }
 }
@@ -441,13 +512,28 @@ function drawUI() {
     ctx.fillStyle = '#E8E4D4';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
+    
+    ctx.font = "bold 24px 'Courier New', Courier, monospace";
+    ctx.fillText(`SCORE: ${score.toString().padStart(6, '0')}`, 20, 20);
+    
+    ctx.font = "16px 'Courier New', Courier, monospace";
+    ctx.fillText(`HIGH:  ${highScore.toString().padStart(6, '0')}`, 20, 50);
+
+    if (multiplier > 1) {
+        ctx.fillStyle = '#3FBDCC';
+        ctx.font = "bold 20px 'Courier New', Courier, monospace";
+        ctx.fillText(`MULT: x${multiplier}`, 20, 80);
+        ctx.fillStyle = '#E8E4D4';
+    }
+
+    ctx.textAlign = 'center';
     ctx.font = "bold 20px 'Courier New', Courier, monospace";
-    ctx.fillText(`SCORE: ${score}`, 20, 20);
+    ctx.fillText(`WAVE ${currentWave + 1}/${WAVES.length}`, width / 2, 20);
 
     for (let i = 0; i < lives; i++) {
         ctx.save();
-        ctx.translate(width - 40 - i * 30, 30);
-        ctx.scale(0.8, 0.8);
+        ctx.translate(width - 30 - i * 35, 30);
+        ctx.scale(0.9, 0.9);
         ctx.fillStyle = '#3FBDCC';
         ctx.beginPath();
         ctx.moveTo(0, -12);
@@ -473,6 +559,21 @@ function draw() {
         drawEnemies();
         drawPlayer();
         drawUI();
+    } else if (currentState === STATE.WAVE_TRANSITION) {
+        drawBullets();
+        drawPlayer();
+        drawUI();
+        
+        ctx.fillStyle = '#E8E4D4';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = "bold 32px 'Courier New', Courier, monospace";
+        ctx.fillText(`WAVE ${currentWave + 1} CLEARED`, width / 2, height / 2 - 20);
+        
+        if (Math.floor(waveTimer / 400) % 2 === 0) {
+            ctx.font = "20px 'Courier New', Courier, monospace";
+            ctx.fillText(`PREPARE FOR WAVE ${currentWave + 2}`, width / 2, height / 2 + 30);
+        }
     } else if (currentState === STATE.PAUSED) {
         drawBullets();
         drawEnemies();
@@ -500,7 +601,13 @@ function draw() {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.font = "32px 'Courier New', Courier, monospace";
-        ctx.fillText("GAME OVER", width / 2, height / 2 - 20);
+        
+        if (currentWave >= WAVES.length - 1 && enemies.length === 0) {
+            ctx.fillText("MISSION ACCOMPLISHED", width / 2, height / 2 - 20);
+        } else {
+            ctx.fillText("GAME OVER", width / 2, height / 2 - 20);
+        }
+        
         ctx.font = "20px 'Courier New', Courier, monospace";
         ctx.fillText("PRESS ENTER TO RESTART", width / 2, height / 2 + 30);
     }
