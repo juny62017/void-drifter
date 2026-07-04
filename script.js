@@ -72,6 +72,87 @@ for (let i = 0; i < 200; i++) {
     enemyBulletPool.push({ active: false, x: 0, y: 0, vx: 0, vy: 0 });
 }
 
+let audioCtx;
+
+function initAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+function playShoot() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(110, audioCtx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.03, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+}
+
+function playExplosion() {
+    if (!audioCtx) return;
+    const bufferSize = audioCtx.sampleRate * 0.3;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        data[i] = Math.random() * 2 - 1;
+    }
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 800;
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+    noise.start();
+}
+
+function playPowerUp() {
+    if (!audioCtx) return;
+    const freqs = [440, 554.37, 659.25, 880];
+    for (let i = 0; i < freqs.length; i++) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freqs[i];
+        gain.gain.setValueAtTime(0, audioCtx.currentTime + i * 0.08);
+        gain.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + i * 0.08 + 0.04);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + i * 0.08 + 0.08);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start(audioCtx.currentTime + i * 0.08);
+        osc.stop(audioCtx.currentTime + i * 0.08 + 0.08);
+    }
+}
+
+function playGameOver() {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 1.5);
+    gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.5);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 1.5);
+}
+
 function initStars() {
     stars.length = 0;
     for (let i = 0; i < 150; i++) {
@@ -206,6 +287,7 @@ function updatePlayer(dt) {
             spawnB(0, 0);
         }
         
+        playShoot();
         player.fireTimer = currentFireRate;
     }
 }
@@ -248,6 +330,8 @@ function updatePowerUps(dt) {
             if (p.type === 'shield') player.hasShield = true;
             else if (p.type === 'rapid') player.rapidFireTimer = 10000;
             else if (p.type === 'wide') player.wideShotTimer = 10000;
+            
+            playPowerUp();
             powerUps.splice(i, 1);
         }
     }
@@ -336,6 +420,8 @@ function checkCollisions() {
                     b.active = false;
                     e.hp--;
                     if (e.hp <= 0) {
+                        playExplosion();
+                        
                         for (let p = 0; p < 20; p++) {
                             particles.push({
                                 x: e.x,
@@ -408,6 +494,8 @@ function checkPlayerHits() {
     }
 
     if (hit) {
+        playExplosion();
+        
         if (player.hasShield) {
             player.hasShield = false;
             player.invulnerableTimer = 1500;
@@ -422,6 +510,7 @@ function checkPlayerHits() {
             
             if (lives < 0) {
                 saveHighScore();
+                playGameOver();
                 currentState = STATE.GAME_OVER;
             }
         }
@@ -434,6 +523,7 @@ function update(dt) {
     if (currentState === STATE.MENU) {
         menuTime += dt;
         if (keys['Enter']) {
+            initAudio();
             currentState = STATE.PLAYING;
             player.x = width / 2;
             player.y = height - 100;
@@ -507,6 +597,7 @@ function update(dt) {
         }
     } else if (currentState === STATE.GAME_OVER) {
         if (keys['Enter']) {
+            initAudio();
             currentState = STATE.MENU;
             keys['Enter'] = false;
         }
